@@ -31,7 +31,7 @@ var cmd = &cobra.Command{
 		httpClient := &http.Client{}
 		req, _ := http.NewRequest("POST", "https://api.openai.com/v1/completions", bytes.NewBuffer(jsonValue))
 		req.Header.Add("Content-Type", "application/json")
-		req.Header.Add("Authorization", "Bearer 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")
+		req.Header.Add("Authorization", "Bearer API_KEY")
 		resp, _ := httpClient.Do(req)
 		defer resp.Body.Close()
 
