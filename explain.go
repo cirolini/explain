@@ -31,14 +31,16 @@ var cmd = &cobra.Command{
 		httpClient := &http.Client{}
 		req, _ := http.NewRequest("POST", "https://api.openai.com/v1/completions", bytes.NewBuffer(jsonValue))
 		req.Header.Add("Content-Type", "application/json")
-		req.Header.Add("Authorization", "Bearer YOUR_API_KEY")
+		req.Header.Add("Authorization", "Bearer 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")
 		resp, _ := httpClient.Do(req)
 		defer resp.Body.Close()
 
 		// Unmarshal JSON response
 		var response map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&response)
-		fmt.Println(response["choices"][0]["text"])
+		choices := response["choices"].([]interface{})
+		firstChoice := choices[0].(map[string]interface{})
+		fmt.Println(firstChoice["text"])
 	},
 }
 
