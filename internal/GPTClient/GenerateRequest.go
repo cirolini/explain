@@ -1,0 +1,16 @@
+package GPTClient
+
+import (
+	gogpt "github.com/sashabaranov/go-gpt3"
+)
+
+func GenerateRequest(prompt string) gogpt.CompletionRequest {
+	request := gogpt.CompletionRequest{
+		Model:       gogpt.GPT3TextDavinci002,
+		MaxTokens:   2048,
+		Temperature: 0.5,
+		Prompt:      prompt,
+	}
+
+	return request
+}
