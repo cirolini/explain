@@ -8,7 +8,7 @@
 
 ## Usage
 - You must have an openai api key, which you can get from [this site](https://platform.openai.com/account/api-keys).
-- Get the docker image from [Dockerhub](https://hub.docker.com/r/adrancarnavale/explain)
+- Get the docker image from [Dockerhub](https://hub.docker.com/r/adrancarnavale/explain) (ensure you get the one tagged as `latest`)
 - Run is as follows:
 
 ```bash
