@@ -6,8 +6,8 @@ import (
 
 func GenerateRequest(prompt string) gogpt.CompletionRequest {
 	request := gogpt.CompletionRequest{
-		Model:       gogpt.GPT3TextDavinci002,
-		MaxTokens:   2048,
+		Model:       gogpt.GPT3TextDavinci003,
+		MaxTokens:   4000,
 		Temperature: 0.5,
 		Prompt:      prompt,
 	}
