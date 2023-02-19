@@ -3,7 +3,7 @@ package helpers
 import "fmt"
 
 func GeneratePromptTemplate(args []string) string {
-	prompt := fmt.Sprintf("For each item, verify if it is a existant linux terminal command. Then teach how to use it:\n%s\n", generatePrompt(args))
+	prompt := fmt.Sprintf("For each item, explain in details what they do in a Linux terminal\n%s\n", generatePrompt(args))
 	return prompt
 }
 
