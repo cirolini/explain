@@ -1,0 +1,29 @@
+name: Golang Lint
+
+on:
+  push:
+    branches: ["*"]
+    types: [opened, synchronize, reopened]
+  pull_request:
+    branches: [ "*" ]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  golang-lint:
+    runs-on: ubuntu-latest
+    name: Golang Lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Golang setup
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19.5
+
+      - name: Golang Lint
+        uses: golangci/golangci-lint-action@v3
