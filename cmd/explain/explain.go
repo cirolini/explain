@@ -15,7 +15,7 @@ var GoGPTContext context.Context
 
 func init() {
 	key := GPTClient.RetriveAIAPIKey()
-	if key == "" || len(key) != GPTClient.AI_API_KEY_LENGTH {
+	if key == "" {
 		fmt.Println("Invalid API_KEY")
 		os.Exit(1)
 	}
