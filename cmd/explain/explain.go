@@ -14,9 +14,9 @@ var GoGPTClient *gogpt.Client
 var GoGPTContext context.Context
 
 func init() {
-	key := GPTClient.RetriveAIAPIKey()
-	if key == "" {
-		fmt.Println("Invalid API_KEY")
+	key, err := GPTClient.RetrieveAIAPIKey()
+	if err != nil {
+		fmt.Println(err)
 		os.Exit(1)
 	}
 	GoGPTClient, GoGPTContext = GPTClient.GenerateClient(key)
