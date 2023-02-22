@@ -6,8 +6,8 @@ import (
 	gogpt "github.com/sashabaranov/go-gpt3"
 )
 
-func GenerateClient(AIAPIKey string) (*gogpt.Client, context.Context) {
-	GPTClient := gogpt.NewClient(AIAPIKey)
+func GenerateClient(key string) (*gogpt.Client, context.Context) {
+	GPTClient := gogpt.NewClient(key)
 	GPTContext := context.Background()
 
 	return GPTClient, GPTContext
