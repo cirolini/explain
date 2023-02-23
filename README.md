@@ -48,6 +48,7 @@ cp explain /usr/local/bin
 
 - Finally, now you just need to call it passing some args, and wait for the response.
 - Your Args are one or more Linux terminal commands, which you must provide sepparated only by a white space.
+- The greater the number of args are, the program will take longer to respond. If you provide three args or less, it shouldn't take more than thirty seconds.
 
 
 ```bash
