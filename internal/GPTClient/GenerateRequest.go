@@ -4,6 +4,7 @@ import (
 	gogpt "github.com/sashabaranov/go-gpt3"
 )
 
+// GenerateRequest generates a request for GPT-3
 func GenerateRequest(prompt string) gogpt.CompletionRequest {
 	request := gogpt.CompletionRequest{
 		Model:       gogpt.GPT3TextDavinci003,
