@@ -9,7 +9,6 @@ import (
 
 var file = ".explainrc"
 
-// RetrieveAIAPIKeyFromFile retrieves the API key from the file
 func RetrieveAIAPIKeyFromFile() (string, error) {
 	dir, err := os.UserHomeDir()
 	if err != nil {
