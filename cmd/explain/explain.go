@@ -14,10 +14,15 @@ var GoGPTClient *gogpt.Client
 var GoGPTContext context.Context
 
 func init() {
-	key, err := GPTClient.RetrieveAIAPIKey()
+	var key string
+	key, err := GPTClient.RetrieveAIAPIKeyFromFile()
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		key, err = GPTClient.RetrieveAIAPIKeyFromEnv()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 	GoGPTClient, GoGPTContext = GPTClient.GenerateClient(key)
 }
