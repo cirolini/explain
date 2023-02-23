@@ -27,7 +27,7 @@ touch ~/.explainrc
 echo {YOUR_KEY} > .explainrc
 ```
 
-- Download the executable from [here](https://github.com/crnvl96/explain/releases/tag/1.0.0), accordingly to your Linux architecture.
+- Download the executable from [here](https://github.com/cirolini/explain/releases/tag/1.0.0), accordingly to your Linux architecture.
 - You may rename the archive to one that suits you better, for example, "explain".
 
 ```bash
