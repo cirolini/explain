@@ -7,7 +7,6 @@ import (
 
 var env = "API_KEY"
 
-// RetrieveAIAPIKeyFromEnv retrieves the API key from the environment variable
 func RetrieveAIAPIKeyFromEnv() (string, error) {
 	key := os.Getenv(env)
 	if len(key) < 2 {
