@@ -47,6 +47,7 @@ cp explain /usr/local/bin
 ```
 
 - Finally, now you just need to call it passing some args, and wait for the response.
+- Your Args are one or more Linux terminal commands, which you must provide sepparated only by a white space.
 
 
 ```bash
@@ -63,8 +64,8 @@ explain ls sudo grep
 docker run -e PROMPT="YOUR_PROMPT" -e API_KEY="YOUR_API_KEY" adrancarnavale/explain:latest
 ```
 
-- your prompt is made of one or more Linux terminal commands, which you must provide sepparated only by a white space.
-- your API key is the one which you retrieved from the site indicated above
+- Your prompt is made of one or more Linux terminal commands, which you must provide sepparated only by a white space.
+- Your API key is the one which you retrieved from the site indicated above
 
 ### Example
 
