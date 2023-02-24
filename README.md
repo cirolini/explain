@@ -48,7 +48,7 @@ cp explain /usr/local/bin
 
 - Finally, now you just need to call it passing an arg, and wait for the response.
 - Your arg is one Linux terminal command.
-- Have in mind that he greater your arg is, the program will take longer to respond.
+- Have in mind that the more complex your arg is, the program will take longer to respond.
 
 
 ```bash
