@@ -46,16 +46,16 @@ chmod +x explain
 cp explain /usr/local/bin
 ```
 
-- Finally, now you just need to call it passing some args, and wait for the response.
-- Your Args are one or more Linux terminal commands, which you must provide sepparated only by a white space.
-- The greater the number of args are, the program will take longer to respond. If you provide three args or less, it shouldn't take more than thirty seconds.
+- Finally, now you just need to call it passing an arg, and wait for the response.
+- Your arg is one Linux terminal command.
+- Have in mind that he greater your arg is, the program will take longer to respond.
 
 
 ```bash
-explain ls sudo grep
+explain "ls -lrth"
 ```
 
-- Have in mind that the time of response may oscilate, depending on the ChatGPT server latency and the number of requests being made. Also, if you make various requests in a small amount of time, your api key may be invalidated. See [Troubleshooting](#troubleshooting)
+- The time of response may oscilate, depending on the ChatGPT server latency and the number of requests being made. Also, if you make various requests in a small amount of time, your api key may be invalidated. See [Troubleshooting](#troubleshooting)
 
 ## Run the program in a docker container 
 - Get the docker image from [Docker hub](https://hub.docker.com/r/adrancarnavale/explain) (ensure you get the one tagged as `latest`)
@@ -65,13 +65,13 @@ explain ls sudo grep
 docker run -e PROMPT="YOUR_PROMPT" -e API_KEY="YOUR_API_KEY" adrancarnavale/explain:latest
 ```
 
-- Your prompt is made of one or more Linux terminal commands, which you must provide sepparated only by a white space.
+- Your prompt is made of one Linux terminal command.
 - Your API key is the one which you retrieved from the site indicated above
 
 ### Example
 
 ```bash
-docker run -e PROMPT="lsof sudo grep" -e API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" adrancarnavale/explain:latest
+docker run -e PROMPT="ls -lrth" -e API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" adrancarnavale/explain:latest
 ```
 
 ## Troubleshooting
