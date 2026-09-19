@@ -17,10 +17,21 @@ import (
 var version = "dev"
 
 func main() {
-	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "explain: %v\n", err)
-		os.Exit(1)
+	err := run()
+	if err == nil {
+		os.Exit(cli.ExitLow)
 	}
+
+	// A verdict is not a failure. `explain check` reports the risk level
+	// through the exit status, and printing it as an error would make a
+	// working guardrail look broken in every log that runs it.
+	var verdict cli.VerdictError
+	if errors.As(err, &verdict) {
+		os.Exit(verdict.Code())
+	}
+
+	fmt.Fprintf(os.Stderr, "explain: %v\n", err)
+	os.Exit(cli.ExitError)
 }
 
 func run() error {

@@ -391,3 +391,28 @@ func TestRuleFindingsReachThePrompt(t *testing.T) {
 		t.Errorf("rule reasons missing from the prompt:\n%s", fake.Last.User)
 	}
 }
+
+// The verdict costs no network and no key, so a missing credential must not be
+// able to swallow it. The user still learns the command is dangerous, and then
+// learns the description is missing.
+func TestVerdictSurvivesAProviderFailure(t *testing.T) {
+	var out bytes.Buffer
+	cmd := NewCommand(Options{
+		Config: config.Config{Provider: config.ProviderOpenAI},
+		NewProvider: func(config.Config) (llm.Provider, error) {
+			return nil, config.ErrNoAPIKey
+		},
+		Out: &out,
+	})
+	cmd.SetArgs([]string{"rm", "-rf", "/"})
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	err := cmd.Execute()
+	if !errors.Is(err, config.ErrNoAPIKey) {
+		t.Errorf("err = %v, want ErrNoAPIKey", err)
+	}
+	if !strings.Contains(out.String(), "HIGH") {
+		t.Errorf("the verdict was lost when the provider failed:\n%s", out.String())
+	}
+}

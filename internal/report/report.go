@@ -36,11 +36,18 @@ type Report struct {
 
 // New builds a report from a rule verdict.
 func New(command string, v risk.Verdict) Report {
+	// Never nil: a nil slice marshals to null, and a caller doing
+	// `.findings | length` on that gets an error rather than a zero.
+	findings := v.Findings
+	if findings == nil {
+		findings = []risk.Finding{}
+	}
+
 	return Report{
 		Command:      command,
 		Severity:     v.Severity,
 		RuleSeverity: v.Severity,
-		Findings:     v.Findings,
+		Findings:     findings,
 		Parsed:       v.Parsed,
 	}
 }
