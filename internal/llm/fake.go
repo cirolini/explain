@@ -2,8 +2,17 @@ package llm
 
 import (
 	"context"
+	"io"
 
 	"github.com/cirolini/explain/internal/prompt"
+)
+
+// Every adapter must satisfy Provider. Without these the compiler is happy to
+// let an adapter drift out of the interface until a call site notices.
+var (
+	_ Provider = (*OpenAI)(nil)
+	_ Provider = (*Anthropic)(nil)
+	_ Provider = (*Fake)(nil)
 )
 
 // Fake is an in-memory Provider for tests. It records the last request it was
@@ -29,11 +38,14 @@ func (f *Fake) Name() string { return "fake" }
 func (f *Fake) Model() string { return f.ModelName }
 
 // Complete implements Provider.
-func (f *Fake) Complete(_ context.Context, req prompt.Request) (string, error) {
+func (f *Fake) Complete(_ context.Context, req prompt.Request, w io.Writer) (string, error) {
 	f.Calls++
 	f.Last = req
 	if f.Err != nil {
 		return "", f.Err
+	}
+	if _, err := io.WriteString(w, f.Response); err != nil {
+		return "", err
 	}
 	return f.Response, nil
 }
