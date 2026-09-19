@@ -1,0 +1,268 @@
+# Deterministic risk rules for explain.
+#
+# These decide the verdict. A model may add explanation and may raise a
+# verdict, but it can never lower one: the command text is attacker-controlled,
+# and a classifier that a command can argue with is not a guardrail.
+#
+# Each rule has an id, a severity (low, medium, high) and a reason written for
+# the person about to press enter. Every field set under `match` must hold.
+#
+# Keep reasons to one sentence, in the second person, naming the consequence
+# rather than the rule.
+
+rules:
+  # --- Destroying data -----------------------------------------------------
+
+  - id: rm-rf-broad-path
+    severity: high
+    reason: >-
+      Recursively force-deletes a top-level or home path. There is no
+      confirmation and no undo.
+    match:
+      command: [rm]
+      flags: [r, f]
+      arg_pattern:
+        - '^/$'
+        - '^/[^/]+/?$'
+        - '^~/?$'
+        - '^\$HOME/?$'
+        - '^\*$'
+        - '^\.$'
+        - '^\.\./'
+
+  - id: rm-rf
+    severity: medium
+    reason: >-
+      Recursively force-deletes a path without confirmation. Check the path
+      before you run it.
+    match:
+      command: [rm]
+      flags: [r, f]
+
+  - id: rm-no-preserve-root
+    severity: high
+    reason: >-
+      Disables the guard that stops rm from deleting the filesystem root.
+    match:
+      command: [rm]
+      any_flag: [no-preserve-root]
+
+  - id: dd-to-device
+    severity: high
+    reason: >-
+      Writes raw bytes to a block device, destroying any filesystem on it
+      without confirmation.
+    match:
+      command: [dd]
+      arg_pattern:
+        - '^of=/dev/'
+
+  - id: mkfs
+    severity: high
+    reason: >-
+      Creates a new filesystem, erasing everything currently on the target.
+    match:
+      command: [mkfs, mkfs.ext4, mkfs.ext3, mkfs.xfs, mkfs.btrfs, mkfs.vfat, mkswap]
+
+  - id: shred
+    severity: high
+    reason: >-
+      Overwrites a file in place so that its contents cannot be recovered.
+    match:
+      command: [shred]
+
+  # --- Executing untrusted input -------------------------------------------
+
+  - id: curl-pipe-shell
+    severity: high
+    reason: >-
+      Downloads a script and executes it immediately, so you run whatever the
+      server returns at the moment you run it, without ever seeing it.
+    match:
+      command: [curl, wget, fetch]
+      pipe_into: [sh, bash, zsh, ksh, dash, fish, python, python3, perl, ruby, node]
+
+  - id: remote-eval
+    severity: high
+    reason: >-
+      Passes downloaded content straight to an interpreter, so unreviewed
+      remote code runs with your privileges.
+    match:
+      text_pattern:
+        - '(curl|wget)[^|]*\|\s*(sudo\s+)?(sh|bash|zsh|python3?|perl|ruby|node)\b'
+        - '\b(bash|sh|zsh)\s+-c\s+.*\$\((curl|wget)'
+        - '\beval\s+.*\$\((curl|wget)'
+
+  # --- Permissions and system state ----------------------------------------
+
+  - id: chmod-777
+    severity: medium
+    reason: >-
+      Makes the target readable, writable and executable by every user on the
+      machine.
+    match:
+      command: [chmod]
+      arg_pattern:
+        - '^0?777$'
+        - '^a\+rwx$'
+
+  - id: chmod-recursive-broad
+    severity: high
+    reason: >-
+      Recursively changes permissions across a top-level path, which can leave
+      the system unbootable or wide open.
+    match:
+      command: [chmod, chown]
+      any_flag: [R, recursive]
+      arg_pattern:
+        - '^/$'
+        - '^/(etc|usr|bin|sbin|var|boot|lib)/?'
+
+  - id: writes-to-etc
+    severity: medium
+    reason: >-
+      Modifies system configuration under /etc, which affects every user and
+      may need a reboot to recover from.
+    match:
+      command: [tee, cp, mv, install, sed, truncate, dd]
+      arg_pattern:
+        - '^/etc/'
+
+  - id: iptables-flush
+    severity: high
+    reason: >-
+      Clears firewall rules, which can drop your own connection to the machine
+      and leave it exposed.
+    match:
+      command: [iptables, ip6tables, nft]
+      any_flag: [F, flush]
+
+  # --- Version control -----------------------------------------------------
+
+  - id: git-force-push-protected
+    severity: high
+    reason: >-
+      Force-pushes to a protected branch, overwriting history that other people
+      have already pulled.
+    match:
+      command: [git]
+      subcommand: [push]
+      any_flag: [f, force, force-with-lease]
+      arg_pattern:
+        - '^(main|master|develop|production|release)$'
+
+  - id: git-force-push
+    severity: medium
+    reason: >-
+      Force-pushes, overwriting remote history. Anyone who pulled the old
+      history will have to recover manually.
+    match:
+      command: [git]
+      subcommand: [push]
+      any_flag: [f, force]
+
+  - id: git-hard-reset
+    severity: medium
+    reason: >-
+      Discards every uncommitted change in the working tree. They are not
+      recoverable through git.
+    match:
+      command: [git]
+      subcommand: [reset]
+      any_flag: [hard]
+
+  - id: git-clean-force
+    severity: medium
+    reason: >-
+      Deletes untracked files outright. Files that were never committed are
+      gone for good.
+    match:
+      command: [git]
+      subcommand: [clean]
+      any_flag: [f, force]
+
+  # --- Infrastructure ------------------------------------------------------
+
+  - id: kubectl-delete-no-namespace
+    severity: high
+    reason: >-
+      Deletes Kubernetes resources without naming a namespace, so it acts on
+      whichever namespace your current context points at.
+    match:
+      command: [kubectl]
+      subcommand: [delete]
+      missing_flags: [n, namespace, A, all-namespaces]
+
+  - id: kubectl-delete
+    severity: medium
+    reason: >-
+      Deletes Kubernetes resources. Confirm the namespace and selector before
+      you run it.
+    match:
+      command: [kubectl]
+      subcommand: [delete]
+
+  - id: terraform-destroy
+    severity: high
+    reason: >-
+      Tears down every resource under this Terraform state, including managed
+      databases and their data.
+    match:
+      command: [terraform, tofu]
+      subcommand: [destroy]
+
+  - id: docker-system-prune
+    severity: medium
+    reason: >-
+      Removes unused Docker images, containers and volumes, which can include
+      data you have not backed up.
+    match:
+      command: [docker, podman]
+      subcommand: [system, volume]
+      any_flag: [volumes, f, force, all, a]
+
+  # --- Databases -----------------------------------------------------------
+
+  - id: sql-destructive
+    severity: high
+    reason: >-
+      Contains a SQL statement that drops or truncates data. It takes effect
+      immediately and is not covered by an application-level undo.
+    match:
+      text_pattern:
+        - '\bdrop\s+(table|database|schema)\b'
+        - '\btruncate\s+table\b'
+        - '\bdelete\s+from\s+\w+\s*;'
+
+  # --- Credentials ---------------------------------------------------------
+
+  - id: secret-in-arguments
+    severity: medium
+    reason: >-
+      Looks like it contains a credential. Arguments are visible to other
+      users via the process list and are written to your shell history.
+    match:
+      text_pattern:
+        - '\b(sk-ant-|ghp_|gho_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16})'
+        - '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+        - '\b(password|passwd|secret|api[_-]?key|token)\s*=\s*[^\s$''"]{8,}'
+
+  # --- Reaching outward ----------------------------------------------------
+
+  - id: history-wipe
+    severity: medium
+    reason: >-
+      Erases shell history, which is also how an intrusion covers its tracks.
+    match:
+      text_pattern:
+        - 'history\s+-c\b'
+        - '>\s*~?/?\.(bash|zsh)_history'
+
+  - id: fork-bomb
+    severity: high
+    reason: >-
+      Is a fork bomb. It will spawn processes until the machine stops
+      responding.
+    match:
+      text_pattern:
+        - ':\(\)\s*\{.*\|.*&.*\}\s*;?\s*:'
