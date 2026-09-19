@@ -30,8 +30,13 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Provider != DefaultProvider {
 		t.Errorf("Provider = %q, want %q", cfg.Provider, DefaultProvider)
 	}
-	if cfg.Model != DefaultModel {
-		t.Errorf("Model = %q, want %q", cfg.Model, DefaultModel)
+	// Model stays empty until Resolve runs, so that a provider chosen by a
+	// flag picks up its own default rather than the previous provider's.
+	if cfg.Model != "" {
+		t.Errorf("Model = %q, want empty before Resolve", cfg.Model)
+	}
+	if cfg.Lang != DefaultLang {
+		t.Errorf("Lang = %q, want %q", cfg.Lang, DefaultLang)
 	}
 	if cfg.APIKey != "" {
 		t.Errorf("APIKey = %q, want empty", cfg.APIKey)
@@ -165,5 +170,121 @@ func TestAPIKeyEnvPrecedence(t *testing.T) {
 				t.Errorf("APIKey = %q, want %q", cfg.APIKey, tc.want)
 			}
 		})
+	}
+}
+
+func TestResolveFillsTheProviderDefaultModel(t *testing.T) {
+	for _, tc := range []struct{ provider, want string }{
+		{ProviderOpenAI, DefaultModels[ProviderOpenAI]},
+		{ProviderAnthropic, DefaultModels[ProviderAnthropic]},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			cfg := Config{Provider: tc.provider}
+			if err := cfg.Resolve(); err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if cfg.Model != tc.want {
+				t.Errorf("Model = %q, want %q", cfg.Model, tc.want)
+			}
+		})
+	}
+}
+
+// Switching provider must not leave the other provider's model behind -- the
+// reason Model is resolved after flags rather than at load time.
+func TestResolveDoesNotCarryAModelAcrossProviders(t *testing.T) {
+	cfg := Config{Provider: ProviderAnthropic}
+	if err := cfg.Resolve(); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if cfg.Model == DefaultModels[ProviderOpenAI] {
+		t.Errorf("anthropic resolved to the OpenAI default %q", cfg.Model)
+	}
+}
+
+func TestResolveKeepsAnExplicitModel(t *testing.T) {
+	cfg := Config{Provider: ProviderAnthropic, Model: "claude-haiku-4-5"}
+	if err := cfg.Resolve(); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if cfg.Model != "claude-haiku-4-5" {
+		t.Errorf("Model = %q, want the explicit value", cfg.Model)
+	}
+}
+
+// A base URL means the endpoint is OpenAI-compatible, not OpenAI itself.
+func TestResolveInfersCompatibleProviderFromBaseURL(t *testing.T) {
+	cfg := Config{Provider: ProviderOpenAI, BaseURL: "http://localhost:11434/v1", Model: "llama3"}
+	if err := cfg.Resolve(); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if cfg.Provider != ProviderCompatible {
+		t.Errorf("Provider = %q, want %q", cfg.Provider, ProviderCompatible)
+	}
+}
+
+func TestResolveRejectsCompatibleWithoutABaseURL(t *testing.T) {
+	cfg := Config{Provider: ProviderCompatible, Model: "llama3"}
+	if err := cfg.Resolve(); err == nil {
+		t.Fatal("Resolve succeeded without a base URL, want error")
+	}
+}
+
+// A local server's model names are its own, so there is nothing to guess.
+func TestResolveRequiresAModelForCompatible(t *testing.T) {
+	cfg := Config{Provider: ProviderCompatible, BaseURL: "http://localhost:11434/v1"}
+	if err := cfg.Resolve(); err == nil {
+		t.Fatal("Resolve succeeded without a model, want error")
+	}
+}
+
+func TestResolveRejectsAnUnknownProvider(t *testing.T) {
+	cfg := Config{Provider: "gopher"}
+	if err := cfg.Resolve(); err == nil {
+		t.Fatal("Resolve accepted an unknown provider, want error")
+	}
+}
+
+func TestResolveLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		lang    string
+		want    string
+		wantErr bool
+	}{
+		{"", DefaultLang, false},
+		{LangEN, LangEN, false},
+		{LangPT, LangPT, false},
+		{"klingon", "", true},
+	} {
+		t.Run("lang="+tc.lang, func(t *testing.T) {
+			cfg := Config{Provider: ProviderOpenAI, Lang: tc.lang}
+			err := cfg.Resolve()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("Resolve accepted an unknown language, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if cfg.Lang != tc.want {
+				t.Errorf("Lang = %q, want %q", cfg.Lang, tc.want)
+			}
+		})
+	}
+}
+
+// Every provider with a default model must have an adapter that can be built
+// from it -- a default naming a provider explain cannot reach is a dead end.
+func TestEveryDefaultModelBelongsToAKnownProvider(t *testing.T) {
+	for provider, model := range DefaultModels {
+		if model == "" {
+			t.Errorf("provider %q has an empty default model", provider)
+		}
+		cfg := Config{Provider: provider}
+		if err := cfg.Resolve(); err != nil {
+			t.Errorf("provider %q does not resolve: %v", provider, err)
+		}
 	}
 }
