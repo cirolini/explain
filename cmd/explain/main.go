@@ -41,21 +41,28 @@ func run() error {
 	return cmd.ExecuteContext(ctx)
 }
 
-// newProvider selects an adapter. Phase 0 ships OpenAI, which also reaches any
-// OpenAI-compatible server through base_url.
+// newProvider selects an adapter for the resolved configuration. Config.Resolve
+// has already rejected unknown providers, so the default case is unreachable in
+// practice -- it exists so adding a provider constant without an adapter fails
+// loudly rather than silently falling through to OpenAI.
 func newProvider(cfg config.Config) (llm.Provider, error) {
+	opts := llm.Options{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL, Model: cfg.Model}
+
+	var (
+		p   llm.Provider
+		err error
+	)
 	switch cfg.Provider {
-	case "openai", "openai-compatible":
-		p, err := llm.NewOpenAI(llm.Options{
-			APIKey:  cfg.APIKey,
-			BaseURL: cfg.BaseURL,
-			Model:   cfg.Model,
-		})
-		if errors.Is(err, llm.ErrNoAPIKey) {
-			return nil, config.ErrNoAPIKey
-		}
-		return p, err
+	case config.ProviderOpenAI, config.ProviderCompatible:
+		p, err = llm.NewOpenAI(opts)
+	case config.ProviderAnthropic:
+		p, err = llm.NewAnthropic(opts)
 	default:
-		return nil, fmt.Errorf("unknown provider %q (supported: openai)", cfg.Provider)
+		return nil, fmt.Errorf("no adapter for provider %q", cfg.Provider)
 	}
+
+	if errors.Is(err, llm.ErrNoAPIKey) {
+		return nil, config.ErrNoAPIKey
+	}
+	return p, err
 }
