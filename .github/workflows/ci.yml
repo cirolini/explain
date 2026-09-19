@@ -1,12 +1,19 @@
 name: CI
 
 on:
+  # Only main on push: a branch with an open PR would otherwise run every job
+  # twice, once per trigger.
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+# A new push supersedes the run still going for the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
