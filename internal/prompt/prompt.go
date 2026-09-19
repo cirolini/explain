@@ -20,6 +20,24 @@ import (
 	"strings"
 )
 
+// Lang selects the language the explanation is written in. It does not change
+// the safety rules, which are stated in English regardless: they are
+// instructions to the model, not output.
+type Lang string
+
+// Supported languages.
+const (
+	EN Lang = "en"
+	PT Lang = "pt"
+)
+
+// langInstruction is appended to the system prompt for non-English output.
+var langInstruction = map[Lang]string{
+	PT: "\n\nWrite your explanation in Brazilian Portuguese (pt-BR). Keep shell " +
+		"syntax, command names, flags and paths exactly as they are -- translate " +
+		"the prose, never the command.",
+}
+
 // System is the instruction block sent as the system message.
 const System = `You are explain(1), a command-line tool that describes shell commands to a user who has not run them yet.
 
@@ -35,11 +53,11 @@ type Request struct {
 	User   string
 }
 
-// Build returns the prompt for explaining a single shell command.
-func Build(command string) Request {
+// Build returns the prompt for explaining a single shell command in lang.
+func Build(command string, lang Lang) Request {
 	nonce := newNonce()
 	return Request{
-		System: System,
+		System: System + langInstruction[lang],
 		User: fmt.Sprintf(
 			"Explain the shell command in the COMMAND block below.\n\n"+
 				"---BEGIN COMMAND %[1]s---\n%[2]s\n---END COMMAND %[1]s---\n\n"+
