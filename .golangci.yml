@@ -1,0 +1,17 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # explain handles untrusted input and reads files from the user's home
+    # directory; gosec keeps that honest.
+    - gosec
+    - revive
+
+formatters:
+  enable:
+    - gofmt
