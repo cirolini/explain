@@ -1,80 +1,71 @@
-# Explain
+# explain
 
-`Explain` is a linux program that provides ChatGPT explanation for Linux terminal commands.
+`explain` describes what a shell command does — what it touches, and whether
+its effects can be undone — without running it.
 
-## Table of contents
-
-- [General Requirements](#general-requirements)
-- [Usage](#usage)
-- [Using Docker](#run-the-program-in-a-docker-container)
-- [Troubleshooting](#troubleshooting)
-
-
-## General Requirements
-- You must have an _API key_, which you can get from [this site](https://platform.openai.com/account/api-keys).
-
-
-## Usage
-- Create a file named `.explainrc` in your home directory
-
-```bash
-touch ~/.explainrc
+```console
+$ explain "ls -lrth"
+$ explain tar -xzf archive.tar.gz -C /opt
 ```
 
-- Paste your retrieved _Open AI API key_ inside the file you just created
+It never executes the command it is given.
+
+## Install
+
+Build from source. `explain` needs Go 1.26 or newer.
 
 ```bash
-echo {YOUR_KEY} > .explainrc
+go install github.com/cirolini/explain/cmd/explain@latest
 ```
 
-- Download the executable from [here](https://github.com/cirolini/explain/releases/tag/1.0.0), accordingly to your Linux architecture.
-- You may rename the archive to one that suits you better, for example, "explain".
+## Configure
+
+`explain` talks to OpenAI by default, using the model in
+[`internal/config/config.go`](internal/config/config.go). Every provider and
+model default lives in that one file.
+
+Create `~/.config/explain/config.toml`:
+
+```toml
+provider = "openai"
+model    = "gpt-5.6-luna"
+api_key  = "sk-..."
+```
+
+Or set the environment instead:
 
 ```bash
-mv linux-amd64 explain
+export EXPLAIN_API_KEY="sk-..."   # OPENAI_API_KEY and API_KEY also work
+export EXPLAIN_MODEL="gpt-5.6-terra"
 ```
 
-- Modify its permissions to make it possible to be called.
+Settings are resolved lowest to highest: built-in defaults, `config.toml`,
+`~/.explainrc` (the 1.x key file, still read), environment variables, then
+flags. `--model` overrides the configured model for one run.
+
+Point `base_url` at any OpenAI-compatible server — Ollama, vLLM, LM Studio — to
+run against a local model. Such servers usually need no API key.
+
+```toml
+provider = "openai-compatible"
+base_url = "http://localhost:11434/v1"
+model    = "llama3"
+```
+
+## Docker
 
 ```bash
-chmod +x explain
+docker build -t explain .
+docker run --rm -e EXPLAIN_API_KEY="sk-..." explain "ls -lrth"
 ```
 
-- Copy the executable to your `usr/local/bin` directory, so you can invoke it directly by its name.
+## Privacy
 
-```bash
-cp explain /usr/local/bin
-```
+The command text is sent to whichever provider you configure. If that matters
+for what you are about to run, use `base_url` with a local model — nothing
+leaves the machine.
 
-- Finally, now you just need to call it passing an arg, and wait for the response.
-- Your arg is one Linux terminal command.
-- Have in mind that the more complex your arg is, the program will take longer to respond.
+## Credits
 
-
-```bash
-explain "ls -lrth"
-```
-
-- The time of response may oscilate, depending on the ChatGPT server latency and the number of requests being made. Also, if you make various requests in a small amount of time, your api key may be invalidated. See [Troubleshooting](#troubleshooting)
-
-## Run the program in a docker container 
-- Get the docker image from [Docker hub](https://hub.docker.com/r/adrancarnavale/explain) (ensure you get the one tagged as `latest`)
-- Run is as follows:
-
-```bash
-docker run -e PROMPT="YOUR_PROMPT" -e API_KEY="YOUR_API_KEY" adrancarnavale/explain:latest
-```
-
-- Your prompt is made of one Linux terminal command.
-- Your API key is the one which you retrieved from the site indicated above
-
-### Example
-
-```bash
-docker run -e PROMPT="ls -lrth" -e API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" adrancarnavale/explain:latest
-```
-
-## Troubleshooting
-
-- If you api key has been revoked, you may retrieve another one from [here](https://platform.openai.com/account/api-keys), and substitute the older one in your local files, or in your docker container.
-
+Originally built in 2023 by [Rafael Cirolini](https://github.com/cirolini) and
+[Ádran Farias Carnavale](https://github.com/crnvl96).
