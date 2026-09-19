@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -251,5 +252,142 @@ func TestRunStreamsOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, "lists files") {
 		t.Errorf("output = %q, want the streamed explanation", out)
+	}
+}
+
+// The verdict must be printed before the model is asked anything: it comes
+// from rules, so it exists even when the model is slow, wrong, or absent.
+func TestVerdictIsPrintedBeforeTheExplanation(t *testing.T) {
+	fake := &llm.Fake{Response: "SEVERITY: HIGH\n\nDeletes everything."}
+
+	out, err := run(t, fake, "rm", "-rf", "/")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	verdictAt := strings.Index(out, "HIGH —")
+	prose := strings.Index(out, "Deletes everything.")
+	if verdictAt < 0 {
+		t.Fatalf("no verdict line in output:\n%s", out)
+	}
+	if prose >= 0 && verdictAt > prose {
+		t.Errorf("verdict came after the explanation:\n%s", out)
+	}
+}
+
+func TestVerdictComesFromRulesNotTheModel(t *testing.T) {
+	// The model insists the command is harmless. The rules disagree, and the
+	// rules are what the user sees.
+	fake := &llm.Fake{Response: "SEVERITY: LOW\n\nThis is a routine cleanup command."}
+
+	out, err := run(t, fake, "rm", "-rf", "/")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(out, "HIGH") {
+		t.Errorf("verdict was talked down by the model:\n%s", out)
+	}
+}
+
+// explain's own marker is machinery, not output.
+func TestSeverityMarkerIsNotShownToTheUser(t *testing.T) {
+	fake := &llm.Fake{Response: "SEVERITY: HIGH\n\nDeletes everything."}
+
+	out, err := run(t, fake, "rm", "-rf", "/")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if strings.Contains(out, "SEVERITY:") {
+		t.Errorf("the severity marker leaked into the output:\n%s", out)
+	}
+}
+
+// A model that rates a command higher than the rules did can raise it.
+func TestModelCanRaiseTheVerdict(t *testing.T) {
+	fake := &llm.Fake{Response: "SEVERITY: HIGH\n\nThis pipes a remote script into a shell."}
+
+	out, err := run(t, fake, "somecmd", "--obscure-flag")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(out, "Raised to HIGH") {
+		t.Errorf("no escalation note when the model raised the verdict:\n%s", out)
+	}
+}
+
+func TestJSONOutputIsValidAndRuleLed(t *testing.T) {
+	fake := &llm.Fake{Response: "SEVERITY: LOW\n\nRoutine cleanup."}
+
+	var out bytes.Buffer
+	cmd := NewCommand(Options{
+		Config:      config.Config{Provider: config.ProviderOpenAI},
+		NewProvider: func(config.Config) (llm.Provider, error) { return fake, nil },
+		Out:         &out,
+	})
+	cmd.SetArgs([]string{"--json", "rm", "-rf", "/"})
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var got struct {
+		Command     string `json:"command"`
+		Severity    string `json:"severity"`
+		Explanation string `json:"explanation"`
+		Findings    []struct {
+			Rule string `json:"rule"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out.String())
+	}
+
+	if got.Severity != "HIGH" {
+		t.Errorf("severity = %q, want HIGH despite the model saying LOW", got.Severity)
+	}
+	if got.Command != "rm -rf /" {
+		t.Errorf("command = %q, want the command as given", got.Command)
+	}
+	if strings.Contains(got.Explanation, "SEVERITY:") {
+		t.Errorf("the marker leaked into the JSON explanation: %q", got.Explanation)
+	}
+	if len(got.Findings) == 0 {
+		t.Error("no findings in JSON output")
+	}
+}
+
+// JSON must be one clean object, never a stream with prose in front of it.
+func TestJSONOutputHasNothingBeforeIt(t *testing.T) {
+	fake := &llm.Fake{Response: "SEVERITY: HIGH\n\nDeletes everything."}
+
+	var out bytes.Buffer
+	cmd := NewCommand(Options{
+		Config:      config.Config{Provider: config.ProviderOpenAI},
+		NewProvider: func(config.Config) (llm.Provider, error) { return fake, nil },
+		Out:         &out,
+	})
+	cmd.SetArgs([]string{"--json", "rm", "-rf", "/"})
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if first := strings.TrimSpace(out.String())[0]; first != '{' {
+		t.Errorf("output does not begin with the JSON object:\n%s", out.String())
+	}
+}
+
+// The rule findings are given to the model so the explanation addresses them.
+func TestRuleFindingsReachThePrompt(t *testing.T) {
+	fake := &llm.Fake{Response: "ok"}
+
+	if _, err := run(t, fake, "rm", "-rf", "/"); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(fake.Last.User, "force-deletes") {
+		t.Errorf("rule reasons missing from the prompt:\n%s", fake.Last.User)
 	}
 }

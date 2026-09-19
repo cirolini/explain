@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/cirolini/explain/internal/config"
 	"github.com/cirolini/explain/internal/llm"
 	"github.com/cirolini/explain/internal/prompt"
+	"github.com/cirolini/explain/internal/report"
+	"github.com/cirolini/explain/internal/risk"
 	"github.com/spf13/cobra"
 )
 
@@ -26,11 +29,17 @@ type Options struct {
 	Out io.Writer
 	// Version is reported by --version.
 	Version string
+	// Rules are the deterministic risk rules. Defaults to the built-in set.
+	Rules *risk.RuleSet
 }
 
 // NewCommand returns the root `explain` command.
 func NewCommand(opts Options) *cobra.Command {
 	cfg := opts.Config
+	if opts.Rules == nil {
+		opts.Rules = risk.MustDefault()
+	}
+	var asJSON bool
 
 	cmd := &cobra.Command{
 		Use:   "explain <command>",
@@ -56,22 +65,22 @@ func NewCommand(opts Options) *cobra.Command {
 				return err
 			}
 
+			command := strings.Join(args, " ")
+
+			// The rules decide, and they need no model and no network. Do that
+			// first, so the verdict exists even if everything after fails.
+			rep := report.New(command, opts.Rules.Evaluate(command))
+
 			provider, err := opts.NewProvider(cfg)
 			if err != nil {
 				return err
 			}
+			rep.Provider, rep.Model = provider.Name(), provider.Model()
 
-			command := strings.Join(args, " ")
-			req := prompt.Build(command, prompt.Lang(cfg.Lang))
-
-			// The explanation streams to out as it arrives, so the terminal
-			// starts filling immediately rather than after the whole response.
-			if _, err := provider.Complete(cmd.Context(), req, out); err != nil {
-				return err
+			if asJSON {
+				return runJSON(cmd.Context(), provider, rep, cfg, out)
 			}
-
-			_, err = fmt.Fprintln(out)
-			return err
+			return runText(cmd.Context(), provider, rep, cfg, out)
 		},
 	}
 
@@ -83,9 +92,69 @@ func NewCommand(opts Options) *cobra.Command {
 	f.StringVar(&cfg.BaseURL, "base-url", cfg.BaseURL,
 		"OpenAI-compatible endpoint, e.g. http://localhost:11434/v1 for Ollama")
 	f.StringVar(&cfg.Lang, "lang", cfg.Lang, "explanation language: en or pt")
+	f.BoolVar(&asJSON, "json", false, "print the verdict and explanation as JSON")
 	// Everything after the first non-flag argument belongs to the command being
 	// explained, so `explain rm -rf /tmp/x` does not trip over -rf.
 	f.SetInterspersed(false)
 
 	return cmd
+}
+
+// runText prints the verdict, then streams the explanation beneath it.
+//
+// The ordering is the point of the tool: the verdict comes from rules, so it
+// is on screen before the model has said anything. If the model then rates the
+// command higher than the rules did, that is noted after the explanation --
+// it can raise the verdict, never lower it.
+func runText(ctx context.Context, p llm.Provider, rep report.Report, cfg config.Config, out io.Writer) error {
+	if err := rep.WriteVerdict(out); err != nil {
+		return err
+	}
+
+	filter := report.NewSeverityFilter(out)
+	_, err := p.Complete(ctx, buildPrompt(rep, cfg), filter)
+	if err != nil {
+		return err
+	}
+	if err := filter.Flush(); err != nil {
+		return err
+	}
+
+	if sev, ok := filter.Severity(); ok {
+		rep = rep.WithModelSeverity(sev)
+	}
+	if _, err := fmt.Fprintln(out); err != nil {
+		return err
+	}
+	return rep.WriteEscalation(out)
+}
+
+// runJSON buffers the explanation and prints one object. Nothing is streamed:
+// a failure part-way through a stream would leave a half-written object that a
+// caller would try to parse.
+func runJSON(ctx context.Context, p llm.Provider, rep report.Report, cfg config.Config, out io.Writer) error {
+	text, err := p.Complete(ctx, buildPrompt(rep, cfg), io.Discard)
+	if err != nil {
+		return err
+	}
+
+	sev, ok, explanation := report.StripSeverityLine(text)
+	rep.Explanation = explanation
+	if ok {
+		rep = rep.WithModelSeverity(sev)
+	}
+	return rep.WriteJSON(out)
+}
+
+// buildPrompt assembles the model request from the rule findings.
+func buildPrompt(rep report.Report, cfg config.Config) prompt.Request {
+	reasons := make([]string, 0, len(rep.Findings))
+	for _, f := range rep.Findings {
+		reasons = append(reasons, f.Reason)
+	}
+
+	return prompt.Build(rep.Command, prompt.Lang(cfg.Lang), prompt.Context{
+		RuleSeverity: rep.RuleSeverity.String(),
+		RuleReasons:  reasons,
+	})
 }
