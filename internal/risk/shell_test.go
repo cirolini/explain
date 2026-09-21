@@ -169,3 +169,31 @@ func TestParseRecordsSudo(t *testing.T) {
 		t.Error("Sudo = true for a command without sudo")
 	}
 }
+
+// Many tools spell long options with a single dash: find's -delete, go's
+// -race, java's -version. A bundle reading is not enough for those.
+func TestParseReadsSingleDashLongOptions(t *testing.T) {
+	for _, tc := range []struct{ raw, flag string }{
+		{`find . -name "*.log" -delete`, "delete"},
+		{"go test -race ./...", "race"},
+		{"sed -i 's/a/b/' f", "i"},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			c := Parse(tc.raw).Commands[0]
+			if !c.HasFlag(tc.flag) {
+				t.Errorf("flag %q missing; have %v", tc.flag, c.Flags)
+			}
+		})
+	}
+}
+
+// Reading a bundle as a name too must not break the bundle reading.
+func TestParseStillSplitsShortBundles(t *testing.T) {
+	c := Parse("rm -rf /var").Commands[0]
+
+	for _, f := range []string{"r", "f"} {
+		if !c.HasFlag(f) {
+			t.Errorf("flag %q missing from a bundle; have %v", f, c.Flags)
+		}
+	}
+}

@@ -71,16 +71,10 @@ func NewCommand(opts Options) *cobra.Command {
 			// first, so the verdict exists even if everything after fails.
 			rep := report.New(command, opts.Rules.Evaluate(command))
 
-			provider, err := opts.NewProvider(cfg)
-			if err != nil {
-				return err
-			}
-			rep.Provider, rep.Model = provider.Name(), provider.Model()
-
 			if asJSON {
-				return runJSON(cmd.Context(), provider, rep, cfg, out)
+				return runJSON(cmd.Context(), opts.NewProvider, rep, cfg, out)
 			}
-			return runText(cmd.Context(), provider, rep, cfg, out)
+			return runText(cmd.Context(), opts.NewProvider, rep, cfg, out)
 		},
 	}
 
@@ -97,6 +91,8 @@ func NewCommand(opts Options) *cobra.Command {
 	// explained, so `explain rm -rf /tmp/x` does not trip over -rf.
 	f.SetInterspersed(false)
 
+	cmd.AddCommand(newCheckCommand(opts, &cfg))
+
 	return cmd
 }
 
@@ -106,14 +102,23 @@ func NewCommand(opts Options) *cobra.Command {
 // is on screen before the model has said anything. If the model then rates the
 // command higher than the rules did, that is noted after the explanation --
 // it can raise the verdict, never lower it.
-func runText(ctx context.Context, p llm.Provider, rep report.Report, cfg config.Config, out io.Writer) error {
+func runText(ctx context.Context, newProvider ProviderFactory, rep report.Report, cfg config.Config, out io.Writer) error {
+	// The verdict goes out before anything that can fail. It cost no network
+	// and no key, so a missing credential or an unreachable model should not
+	// be able to swallow it -- the user still learns the command is dangerous,
+	// and then learns that the description is missing.
 	if err := rep.WriteVerdict(out); err != nil {
 		return err
 	}
 
-	filter := report.NewSeverityFilter(out)
-	_, err := p.Complete(ctx, buildPrompt(rep, cfg), filter)
+	provider, err := newProvider(cfg)
 	if err != nil {
+		return err
+	}
+	rep.Provider, rep.Model = provider.Name(), provider.Model()
+
+	filter := report.NewSeverityFilter(out)
+	if _, err := provider.Complete(ctx, buildPrompt(rep, cfg), filter); err != nil {
 		return err
 	}
 	if err := filter.Flush(); err != nil {
@@ -132,8 +137,14 @@ func runText(ctx context.Context, p llm.Provider, rep report.Report, cfg config.
 // runJSON buffers the explanation and prints one object. Nothing is streamed:
 // a failure part-way through a stream would leave a half-written object that a
 // caller would try to parse.
-func runJSON(ctx context.Context, p llm.Provider, rep report.Report, cfg config.Config, out io.Writer) error {
-	text, err := p.Complete(ctx, buildPrompt(rep, cfg), io.Discard)
+func runJSON(ctx context.Context, newProvider ProviderFactory, rep report.Report, cfg config.Config, out io.Writer) error {
+	provider, err := newProvider(cfg)
+	if err != nil {
+		return err
+	}
+	rep.Provider, rep.Model = provider.Name(), provider.Model()
+
+	text, err := provider.Complete(ctx, buildPrompt(rep, cfg), io.Discard)
 	if err != nil {
 		return err
 	}

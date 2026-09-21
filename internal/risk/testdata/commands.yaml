@@ -160,6 +160,38 @@ cases:
   - command: docker compose up -d
     severity: low
 
+  # --- Cloud resources -----------------------------------------------------
+  - command: aws s3 rm s3://prod-backups --recursive
+    severity: high
+    rules: [cloud-storage-recursive-delete]
+  - command: gcloud compute instances delete api-prod --quiet
+    severity: high
+    rules: [cloud-resource-delete]
+  - command: aws s3 ls s3://prod-backups
+    severity: low
+  - command: npm publish
+    severity: high
+    rules: [package-publish]
+  - command: npm install --save-dev vitest
+    severity: low
+
+  # --- Bulk edits ----------------------------------------------------------
+  - command: find . -name "*.log" -delete
+    severity: medium
+    rules: [find-delete]
+  - command: find . -name "*.log" -type f
+    severity: low
+  - command: "sed -i 's/old/new/g' main.go"
+    severity: medium
+    rules: [sed-in-place]
+  - command: "sed 's/old/new/g' main.go"
+    severity: low
+  - command: sudo systemctl stop nginx
+    severity: medium
+    rules: [service-stop]
+  - command: systemctl status nginx
+    severity: low
+
   # --- Databases -----------------------------------------------------------
   - command: 'psql -c "DROP TABLE users;"'
     severity: high

@@ -45,6 +45,33 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+  shell:
+    name: Shell examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The hook is the part a user installs between an agent and their
+      # filesystem, so it is held to the same bar as the Go code.
+      - name: ShellCheck
+        run: shellcheck examples/claude-code-hook/*.sh
+
+  eval:
+    name: Eval
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+
+      # The rules-only arm needs no network and no credentials, so it can run
+      # on every pull request. A change in these numbers is a change in
+      # behaviour, and should be visible in review.
+      - name: Score the rules against the labelled dataset
+        run: go run ./tools/eval
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

@@ -108,6 +108,45 @@ explain --base-url http://localhost:11434/v1 --model llama3 "ls -lrth"
 Passing `--base-url` alone is enough; the provider switches to
 `openai-compatible` on its own.
 
+## In front of an agent
+
+This is the point of v2. Coding agents run shell commands on your machine all
+day. `explain check` classifies a command and exits with a status a script can
+branch on:
+
+```console
+$ explain check "git reset --hard HEAD~3"; echo $?
+MEDIUM — Discards every uncommitted change in the working tree. They are not recoverable through git.
+1
+```
+
+```
+0  LOW     no rule matched
+1  MEDIUM  changes state, or deserves a look
+2  HIGH    destroys data, or runs unreviewed code
+3  error   explain itself failed, and said nothing about the command
+```
+
+`check` consults **no model by default**. The verdict comes from rules that
+need no network, no API key and no credit, and answer in well under a
+millisecond — which is what makes it usable in front of every command an agent
+runs. Pass `--explain` to add a model's description and accept the round trip.
+
+A verdict and a failure are deliberately different exit codes. A caller that
+could not tell "this command is dangerous" from "explain could not run" would
+have to either block on outages or ignore real findings.
+
+- [`examples/claude-code-hook/`](examples/claude-code-hook/) — a `PreToolUse`
+  hook that denies HIGH, asks on MEDIUM, and stays out of the way on LOW.
+- [`examples/shell/`](examples/shell/) — a `??` prefix for your own shell.
+
+## How well does it work?
+
+[`docs/results.md`](docs/results.md) — 66 commands, scored against labels.
+86% agreement and **zero false positives**, with the misses listed rather than
+tuned away. The labels are draft and the model arm has not been run against a
+real model yet; both caveats are stated on the page.
+
 ## Flags
 
 ```

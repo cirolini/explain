@@ -221,6 +221,68 @@ rules:
       subcommand: [system, volume]
       any_flag: [volumes, f, force, all, a]
 
+  # --- Cloud resources -----------------------------------------------------
+
+  - id: cloud-storage-recursive-delete
+    severity: high
+    reason: >-
+      Recursively deletes objects from cloud storage. Unless versioning is on,
+      they are gone, and the command does not ask.
+    match:
+      command: [aws, gcloud, gsutil, az]
+      any_flag: [recursive]
+      text_pattern:
+        - '\b(s3\s+rm|s3\s+rb|storage\s+rm|rm\s+-r?\s*gs://)'
+
+  - id: cloud-resource-delete
+    severity: high
+    reason: >-
+      Deletes a cloud resource. Instances, databases and their attached disks
+      do not come back, and --quiet skips the confirmation.
+    match:
+      command: [aws, gcloud, az, doctl, flyctl]
+      text_pattern:
+        - '\b(instances|clusters|databases|disks|buckets|group|vm)\s+delete\b'
+        - '\bdelete-(db-instance|cluster|bucket)\b'
+
+  - id: package-publish
+    severity: high
+    reason: >-
+      Publishes to a public registry. Versions generally cannot be replaced or
+      withdrawn once anyone has installed them.
+    match:
+      command: [npm, pnpm, yarn, cargo, gem, twine, poetry]
+      subcommand: [publish, upload]
+
+  # --- Editing and deleting in bulk ----------------------------------------
+
+  - id: find-delete
+    severity: medium
+    reason: >-
+      Deletes every file the search matches, with no listing first and no
+      confirmation.
+    match:
+      command: [find]
+      any_flag: [delete]
+
+  - id: sed-in-place
+    severity: medium
+    reason: >-
+      Rewrites files in place. Without a backup suffix, the previous contents
+      are not recoverable outside version control.
+    match:
+      command: [sed, perl]
+      any_flag: [i, in-place]
+
+  - id: service-stop
+    severity: medium
+    reason: >-
+      Stops or disables a system service, which takes whatever depends on it
+      down with it.
+    match:
+      command: [systemctl, service, launchctl]
+      subcommand: [stop, disable, mask, unload]
+
   # --- Databases -----------------------------------------------------------
 
   - id: sql-destructive

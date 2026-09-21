@@ -217,3 +217,26 @@ func TestStripSeverityLine(t *testing.T) {
 		t.Errorf("StripSeverityLine altered text with no marker: %q", rest)
 	}
 }
+
+// A nil slice marshals to null, and a hook doing `.findings | length` on null
+// gets an error rather than a zero.
+func TestFindingsAreAnEmptyArrayNotNull(t *testing.T) {
+	var out bytes.Buffer
+	if err := New("ls", verdict(t, "ls")).WriteJSON(&out); err != nil {
+		t.Fatalf("WriteJSON: %v", err)
+	}
+
+	if strings.Contains(out.String(), `"findings": null`) {
+		t.Errorf("findings marshalled as null:\n%s", out.String())
+	}
+
+	var got struct {
+		Findings []risk.Finding `json:"findings"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got.Findings == nil {
+		t.Error("findings decoded as nil")
+	}
+}

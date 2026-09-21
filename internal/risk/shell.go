@@ -211,13 +211,23 @@ func parseFlag(arg string) []string {
 		return []string{name}
 
 	default:
+		body, _, _ := strings.Cut(arg[1:], "=")
+
 		// A bundle of short flags; a value may be attached, as in -n5.
 		var out []string
-		for _, r := range arg[1:] {
+		for _, r := range body {
 			if r >= '0' && r <= '9' {
 				break
 			}
 			out = append(out, string(r))
+		}
+
+		// Plenty of tools spell long options with a single dash -- find's
+		// -delete, java's -version, go's -race. Record the whole token as a
+		// name too, so a rule can ask for "delete" and mean it. Reading -rf as
+		// both {r, f} and "rf" costs nothing: no rule asks for "rf".
+		if len(body) > 1 && isFlagName(body) {
+			out = append(out, body)
 		}
 		return out
 	}
@@ -253,6 +263,18 @@ func base(name string) string {
 		return name[i+1:]
 	}
 	return name
+}
+
+// isFlagName reports whether s could be a long option's name.
+func isFlagName(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // isAssignment reports whether a word looks like NAME=value.
