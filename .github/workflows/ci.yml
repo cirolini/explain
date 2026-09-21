@@ -72,6 +72,32 @@ jobs:
       - name: Score the rules against the labelled dataset
         run: go run ./tools/eval
 
+  release-snapshot:
+    name: Release snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+
+      # Builds every target, archives and checksums exactly as a tagged
+      # release would, without publishing anything. The release workflow only
+      # runs on a tag, so without this the packaging would first be exercised
+      # on the day it matters.
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: List artifacts
+        run: |
+          ls -l dist/*.tar.gz
+          cat dist/checksums.txt
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
