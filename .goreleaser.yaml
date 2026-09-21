@@ -1,0 +1,87 @@
+# GoReleaser configuration for explain.
+#
+# Release binaries for 1.0.0 were uploaded by hand. This builds and publishes
+# them from a tag instead, so what people download matches what is in the
+# repository at that tag.
+#
+# Validate without releasing:
+#
+#   goreleaser check
+#   goreleaser release --snapshot --clean
+
+version: 2
+
+project_name: explain
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  # Only the CLI. tools/eval is a main package too, and it is a development
+  # tool rather than something to ship.
+  - id: explain
+    main: ./cmd/explain
+    binary: explain
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: explain
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - docs/**/*
+      - examples/**/*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  footer: |
+    ## Verify
+
+    ```bash
+    sha256sum -c checksums.txt --ignore-missing
+    ```
+
+    Every artifact carries a build provenance attestation. Verify it with:
+
+    ```bash
+    gh attestation verify explain_{{ .Version }}_linux_amd64.tar.gz --repo cirolini/explain
+    ```
+
+# A Homebrew tap needs a second repository (cirolini/homebrew-tap) and a token
+# that can write to it. Create the repository, add a HOMEBREW_TAP_TOKEN secret,
+# then uncomment this block.
+#
+# brews:
+#   - repository:
+#       owner: cirolini
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+#     homepage: https://github.com/cirolini/explain
+#     description: Explain and risk-check a shell command before you run it
+#     license: MIT
+#     test: |
+#       system "#{bin}/explain", "--version"
