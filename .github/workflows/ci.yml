@@ -98,6 +98,20 @@ jobs:
           ls -l dist/*.tar.gz
           cat dist/checksums.txt
 
+      # A green build said nothing about what went into the archives: the
+      # first snapshot passed while silently dropping docs/. Check the files a
+      # user would expect to find.
+      - name: Check archive contents
+        run: |
+          archive=$(ls dist/*_linux_amd64.tar.gz)
+          contents=$(tar -tzf "$archive")
+          for f in explain LICENSE README.md docs/results.md docs/case-study.md \
+                   examples/README.md examples/claude-code-hook/explain-hook.sh \
+                   examples/shell/explain.zsh; do
+            grep -qx "$f" <<<"$contents" || { echo "missing from $archive: $f"; exit 1; }
+          done
+          echo "all expected files present"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

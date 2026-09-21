@@ -38,10 +38,15 @@ archives:
     formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # `dir/**/*` only matches files at least one level below dir, so the
+    # top-level files of each directory need their own entry. Without them the
+    # first snapshot shipped examples/shell/ but not examples/README.md, and no
+    # docs at all.
     files:
       - README.md
       - LICENSE
-      - docs/**/*
+      - docs/*
+      - examples/*
       - examples/**/*
 
 checksum:
