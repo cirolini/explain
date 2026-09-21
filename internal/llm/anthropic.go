@@ -80,7 +80,7 @@ func (a *Anthropic) Complete(ctx context.Context, req prompt.Request, w io.Write
 
 	text := strings.TrimSpace(b.String())
 	if text == "" {
-		return "", fmt.Errorf("anthropic: model %q returned an empty explanation", a.model)
+		return "", fmt.Errorf("anthropic: model %q %w", a.model, ErrEmptyExplanation)
 	}
 	return text, nil
 }

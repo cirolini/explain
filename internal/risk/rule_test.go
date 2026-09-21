@@ -1,6 +1,7 @@
 package risk
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -29,6 +30,31 @@ func TestLoadRejectsInvalidRuleSets(t *testing.T) {
 func TestSeverityOrdering(t *testing.T) {
 	if Low >= Medium || Medium >= High {
 		t.Error("severities do not compare in order")
+	}
+}
+
+// `explain --json` output must be readable back into the same values.
+func TestSeverityJSONRoundTrip(t *testing.T) {
+	for _, s := range []Severity{Low, Medium, High} {
+		data, err := json.Marshal(s)
+		if err != nil {
+			t.Fatalf("Marshal(%s): %v", s, err)
+		}
+		var got Severity
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("Unmarshal(%s): %v", data, err)
+		}
+		if got != s {
+			t.Errorf("round trip turned %s into %s", s, got)
+		}
+	}
+
+	var s Severity
+	if err := json.Unmarshal([]byte(`"catastrophic"`), &s); err == nil {
+		t.Error("an unknown severity name was accepted")
+	}
+	if err := json.Unmarshal([]byte(`2`), &s); err == nil {
+		t.Error("a number was accepted as a severity")
 	}
 }
 
