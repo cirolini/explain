@@ -89,7 +89,7 @@ func (o *OpenAI) Complete(ctx context.Context, req prompt.Request, w io.Writer) 
 
 	text := strings.TrimSpace(b.String())
 	if text == "" {
-		return "", fmt.Errorf("%s: model %q returned an empty explanation", o.name, o.model)
+		return "", fmt.Errorf("%s: model %q %w", o.name, o.model, ErrEmptyExplanation)
 	}
 	return text, nil
 }

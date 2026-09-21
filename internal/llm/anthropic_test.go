@@ -72,8 +72,9 @@ func TestAnthropicCompleteRejectsAnEmptyStream(t *testing.T) {
 	srv := newSSEServer(t, anthropicFrames()...)
 	p := newAnthropicAgainst(t, srv.URL)
 
-	if _, err := p.Complete(context.Background(), req(), io.Discard); err == nil {
-		t.Fatal("Complete succeeded on an empty stream, want error")
+	_, err := p.Complete(context.Background(), req(), io.Discard)
+	if !errors.Is(err, ErrEmptyExplanation) {
+		t.Fatalf("err = %v, want ErrEmptyExplanation", err)
 	}
 }
 
