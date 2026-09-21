@@ -101,6 +101,7 @@ func run() error {
 		baseURL  = flag.String("base-url", "", "OpenAI-compatible endpoint")
 		markdown = flag.Bool("markdown", false, "emit Markdown tables")
 		out      = flag.String("out", "", "also write every case's result to this JSON file")
+		from     = flag.String("from", "", "re-score a saved --out file against the current labels and rules, without asking the model again")
 		opts     options
 	)
 	flag.BoolVar(&opts.blind, "blind", false,
@@ -112,6 +113,17 @@ func run() error {
 	cases, err := load(*dataset)
 	if err != nil {
 		return err
+	}
+
+	if *from != "" {
+		arm, results, err := rescore(*from, cases)
+		if err != nil {
+			return err
+		}
+		if *markdown {
+			return writeMarkdown(os.Stdout, arm, results)
+		}
+		return writeText(os.Stdout, arm, results)
 	}
 
 	arm := "rules only"
@@ -217,6 +229,59 @@ func score(cases []evalCase, p llm.Provider, opts options) ([]result, error) {
 		out = append(out, res)
 	}
 	return out, nil
+}
+
+// rescore replays a saved run against the current dataset and rules. The
+// model's answers are reused as recorded; the labels and the rules' verdicts
+// are taken fresh, so a label correction or a rule change can be measured
+// without paying for, or waiting out, the model again.
+//
+// A saved run whose commands no longer match the dataset is an error rather
+// than a partial score, for the same reason score refuses to drop cases.
+func rescore(path string, cases []evalCase) (string, []result, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // a path the operator passed
+	if err != nil {
+		return "", nil, err
+	}
+	var saved struct {
+		Arm     string   `json:"arm"`
+		Results []result `json:"results"`
+	}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return "", nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+
+	byCommand := make(map[string]result, len(saved.Results))
+	for _, r := range saved.Results {
+		byCommand[r.Command] = r
+	}
+	if len(byCommand) != len(cases) {
+		return "", nil, fmt.Errorf("%s has %d cases, the dataset has %d", path, len(byCommand), len(cases))
+	}
+
+	rules := risk.MustDefault()
+	out := make([]result, 0, len(cases))
+	for _, c := range cases {
+		old, ok := byCommand[c.Command]
+		if !ok {
+			return "", nil, fmt.Errorf("%s has no result for %q", path, c.Command)
+		}
+		want, err := risk.ParseSeverity(c.Label)
+		if err != nil {
+			return "", nil, fmt.Errorf("case %q: %w", c.Command, err)
+		}
+
+		v := rules.Evaluate(c.Command)
+		res := result{
+			evalCase: c, Want: want, Rule: v.Severity, Got: v.Severity,
+			Model: old.Model, ModelAsked: old.ModelAsked, ModelEmpty: old.ModelEmpty,
+		}
+		if old.Model != nil {
+			res.Got = report.New(c.Command, v).WithModelSeverity(*old.Model).Severity
+		}
+		out = append(out, res)
+	}
+	return saved.Arm, out, nil
 }
 
 // completeWithRetry asks the provider, waiting out rate limits and transient
