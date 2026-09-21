@@ -13,7 +13,7 @@ import (
 )
 
 // req is the prompt used throughout these tests.
-func req() prompt.Request { return prompt.Build("ls -lrth", prompt.EN) }
+func req() prompt.Request { return prompt.Build("ls -lrth", prompt.EN, prompt.Context{}) }
 
 func TestNewOpenAIRequiresCredentialsOrBaseURL(t *testing.T) {
 	if _, err := NewOpenAI(Options{Model: "m"}); !errors.Is(err, ErrNoAPIKey) {
