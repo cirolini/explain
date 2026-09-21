@@ -9,6 +9,7 @@ package risk
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -73,6 +74,21 @@ func (s *Severity) UnmarshalYAML(node *yaml.Node) error {
 
 // MarshalJSON renders the severity as its name.
 func (s Severity) MarshalJSON() ([]byte, error) { return []byte(`"` + s.String() + `"`), nil }
+
+// UnmarshalJSON reads a severity name, so `explain --json` output can be read
+// back by another Go program.
+func (s *Severity) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err != nil {
+		return fmt.Errorf("severity must be a string: %w", err)
+	}
+	parsed, err := ParseSeverity(name)
+	if err != nil {
+		return err
+	}
+	*s = parsed
+	return nil
+}
 
 // Rule is one deterministic check.
 type Rule struct {
