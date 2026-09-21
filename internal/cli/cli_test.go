@@ -17,7 +17,7 @@ func run(t *testing.T, fake *llm.Fake, args ...string) (string, error) {
 
 	var out bytes.Buffer
 	cmd := NewCommand(Options{
-		Config:      config.Config{Provider: "openai", Model: config.DefaultModel},
+		Config:      config.Config{Provider: config.ProviderOpenAI},
 		NewProvider: func(config.Config) (llm.Provider, error) { return fake, nil },
 		Out:         &out,
 	})
@@ -103,7 +103,7 @@ func TestRunReturnsProviderErrors(t *testing.T) {
 func TestRunReturnsProviderConstructionErrors(t *testing.T) {
 	var out bytes.Buffer
 	cmd := NewCommand(Options{
-		Config: config.Config{Provider: "openai"},
+		Config: config.Config{Provider: config.ProviderOpenAI},
 		NewProvider: func(config.Config) (llm.Provider, error) {
 			return nil, config.ErrNoAPIKey
 		},
@@ -125,7 +125,7 @@ func TestModelFlagOverridesConfig(t *testing.T) {
 	var out bytes.Buffer
 
 	cmd := NewCommand(Options{
-		Config: config.Config{Provider: "openai", Model: config.DefaultModel},
+		Config: config.Config{Provider: config.ProviderOpenAI},
 		NewProvider: func(cfg config.Config) (llm.Provider, error) {
 			got = cfg
 			return &llm.Fake{Response: "ok"}, nil
@@ -141,5 +141,115 @@ func TestModelFlagOverridesConfig(t *testing.T) {
 	}
 	if got.Model != "gpt-5.6-terra" {
 		t.Errorf("Model = %q, want %q", got.Model, "gpt-5.6-terra")
+	}
+}
+
+// execute runs the command with a provider factory that captures the resolved
+// configuration, so flag handling can be asserted without a network call.
+func execute(t *testing.T, cfg config.Config, args ...string) (config.Config, error) {
+	t.Helper()
+
+	var got config.Config
+	var out bytes.Buffer
+	cmd := NewCommand(Options{
+		Config: cfg,
+		NewProvider: func(c config.Config) (llm.Provider, error) {
+			got = c
+			return &llm.Fake{Response: "ok"}, nil
+		},
+		Out: &out,
+	})
+	cmd.SetArgs(args)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	return got, cmd.Execute()
+}
+
+func TestProviderFlagSelectsTheProvider(t *testing.T) {
+	got, err := execute(t, config.Config{Provider: config.ProviderOpenAI},
+		"--provider", config.ProviderAnthropic, "ls")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.Provider != config.ProviderAnthropic {
+		t.Errorf("Provider = %q, want %q", got.Provider, config.ProviderAnthropic)
+	}
+}
+
+// Choosing a provider with --provider must pick up that provider's default
+// model, not the one the previous provider would have used.
+func TestProviderFlagPicksUpThatProvidersDefaultModel(t *testing.T) {
+	got, err := execute(t, config.Config{Provider: config.ProviderOpenAI},
+		"--provider", config.ProviderAnthropic, "ls")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if want := config.DefaultModels[config.ProviderAnthropic]; got.Model != want {
+		t.Errorf("Model = %q, want %q", got.Model, want)
+	}
+}
+
+func TestBaseURLFlagSwitchesToTheCompatibleProvider(t *testing.T) {
+	got, err := execute(t, config.Config{Provider: config.ProviderOpenAI},
+		"--base-url", "http://localhost:11434/v1", "--model", "llama3", "ls")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.Provider != config.ProviderCompatible {
+		t.Errorf("Provider = %q, want %q", got.Provider, config.ProviderCompatible)
+	}
+	if got.BaseURL != "http://localhost:11434/v1" {
+		t.Errorf("BaseURL = %q, want the flag value", got.BaseURL)
+	}
+}
+
+func TestLangFlagReachesThePrompt(t *testing.T) {
+	fake := &llm.Fake{Response: "ok"}
+	var out bytes.Buffer
+	cmd := NewCommand(Options{
+		Config:      config.Config{Provider: config.ProviderOpenAI},
+		NewProvider: func(config.Config) (llm.Provider, error) { return fake, nil },
+		Out:         &out,
+	})
+	cmd.SetArgs([]string{"--lang", "pt", "ls"})
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(fake.Last.System, "Brazilian Portuguese") {
+		t.Errorf("system prompt is not in pt mode:\n%s", fake.Last.System)
+	}
+}
+
+func TestInvalidFlagValuesAreRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"unknown provider", []string{"--provider", "gopher", "ls"}},
+		{"unknown language", []string{"--lang", "klingon", "ls"}},
+		{"compatible without base url", []string{"--provider", "openai-compatible", "ls"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := execute(t, config.Config{Provider: config.ProviderOpenAI}, tc.args...); err == nil {
+				t.Fatal("Execute succeeded, want error")
+			}
+		})
+	}
+}
+
+// Streaming means the explanation reaches the terminal as it arrives.
+func TestRunStreamsOutput(t *testing.T) {
+	fake := &llm.Fake{Response: "lists files"}
+
+	out, err := run(t, fake, "ls")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(out, "lists files") {
+		t.Errorf("output = %q, want the streamed explanation", out)
 	}
 }

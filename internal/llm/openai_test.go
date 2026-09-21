@@ -1,16 +1,19 @@
 package llm
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/cirolini/explain/internal/prompt"
 )
+
+// req is the prompt used throughout these tests.
+func req() prompt.Request { return prompt.Build("ls -lrth", prompt.EN) }
 
 func TestNewOpenAIRequiresCredentialsOrBaseURL(t *testing.T) {
 	if _, err := NewOpenAI(Options{Model: "m"}); !errors.Is(err, ErrNoAPIKey) {
@@ -29,8 +32,8 @@ func TestNewOpenAIAcceptsBaseURLWithoutKey(t *testing.T) {
 	}
 }
 
-func TestNewOpenAIReportsModel(t *testing.T) {
-	p, err := NewOpenAI(Options{APIKey: "sk-test", Model: "gpt-5.6-luna"})
+func TestNewOpenAIReportsNameAndModel(t *testing.T) {
+	p, err := NewOpenAI(Options{APIKey: testKey, Model: "gpt-5.6-luna"})
 	if err != nil {
 		t.Fatalf("NewOpenAI: %v", err)
 	}
@@ -42,84 +45,82 @@ func TestNewOpenAIReportsModel(t *testing.T) {
 	}
 }
 
-// newStubbedProvider points an OpenAI adapter at a local test server, so the
-// request/response round trip is exercised without reaching the real API.
-func newStubbedProvider(t *testing.T, status int, body any) *OpenAI {
+// newOpenAIAgainst points an adapter at a test server.
+func newOpenAIAgainst(t *testing.T, baseURL string) *OpenAI {
 	t.Helper()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
-			t.Errorf("unexpected path %q; explain should use Chat Completions", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		if err := json.NewEncoder(w).Encode(body); err != nil {
-			t.Errorf("encoding stub response: %v", err)
-		}
-	}))
-	t.Cleanup(srv.Close)
-
-	p, err := NewOpenAI(Options{APIKey: "sk-test", BaseURL: srv.URL, Model: "test-model"})
+	p, err := NewOpenAI(Options{APIKey: testKey, BaseURL: baseURL, Model: "test-model"})
 	if err != nil {
 		t.Fatalf("NewOpenAI: %v", err)
 	}
 	return p
 }
 
-func TestCompleteReturnsExplanation(t *testing.T) {
-	p := newStubbedProvider(t, http.StatusOK, map[string]any{
-		"choices": []map[string]any{
-			{"message": map[string]any{"role": "assistant", "content": "  lists files  "}},
-		},
-	})
+func TestOpenAICompleteReturnsTheWholeExplanation(t *testing.T) {
+	srv := newSSEServer(t, openAIFrames("lists ", "files ", "by time")...)
+	p := newOpenAIAgainst(t, srv.URL)
 
-	got, err := p.Complete(context.Background(), prompt.Build("ls"))
+	got, err := p.Complete(context.Background(), req(), io.Discard)
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if got != "lists files" {
-		t.Errorf("Complete = %q, want %q", got, "lists files")
+	if want := "lists files by time"; got != want {
+		t.Errorf("Complete = %q, want %q", got, want)
+	}
+	if !strings.HasSuffix(srv.Path, "/chat/completions") {
+		t.Errorf("path = %q; explain should use Chat Completions", srv.Path)
 	}
 }
 
-// A model that spends its whole token budget on reasoning returns an empty
-// string. That is a failure, not an explanation -- surface it rather than
-// printing nothing and exiting 0.
-func TestCompleteRejectsEmptyContent(t *testing.T) {
-	p := newStubbedProvider(t, http.StatusOK, map[string]any{
-		"choices": []map[string]any{
-			{"message": map[string]any{"role": "assistant", "content": "   "}},
-		},
-	})
+// The point of streaming: fragments reach the writer as they arrive, so a
+// terminal fills up instead of waiting for the whole response.
+func TestOpenAICompleteStreamsToTheWriter(t *testing.T) {
+	srv := newSSEServer(t, openAIFrames("lists ", "files")...)
+	p := newOpenAIAgainst(t, srv.URL)
 
-	if _, err := p.Complete(context.Background(), prompt.Build("ls")); err == nil {
-		t.Fatal("Complete succeeded on empty content, want error")
+	var out bytes.Buffer
+	if _, err := p.Complete(context.Background(), req(), &out); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if want := "lists files"; out.String() != want {
+		t.Errorf("streamed %q, want %q", out.String(), want)
 	}
 }
 
-func TestCompleteRejectsNoChoices(t *testing.T) {
-	p := newStubbedProvider(t, http.StatusOK, map[string]any{"choices": []map[string]any{}})
+// A model that spends its whole budget on reasoning emits no text. That is a
+// failure, not an explanation -- surface it rather than exiting 0 silently.
+func TestOpenAICompleteRejectsAnEmptyStream(t *testing.T) {
+	srv := newSSEServer(t, openAIFrames()...)
+	p := newOpenAIAgainst(t, srv.URL)
 
-	if _, err := p.Complete(context.Background(), prompt.Build("ls")); err == nil {
-		t.Fatal("Complete succeeded with no choices, want error")
+	if _, err := p.Complete(context.Background(), req(), io.Discard); err == nil {
+		t.Fatal("Complete succeeded on an empty stream, want error")
 	}
 }
 
-// The failure mode that killed 1.x: a retired model id. It must surface as an
-// error the caller can print, not a process exit from inside the library.
-func TestCompleteReturnsAPIErrors(t *testing.T) {
-	p := newStubbedProvider(t, http.StatusNotFound, map[string]any{
-		"error": map[string]any{
-			"message": "The model `text-davinci-003` does not exist",
-			"code":    "model_not_found",
-		},
-	})
+// The failure that killed 1.x: a retired model id. It must surface as an error
+// the caller can print, not a process exit from inside the library.
+func TestOpenAICompleteReturnsAPIErrors(t *testing.T) {
+	srv := newErrorServer(t, http.StatusNotFound,
+		`{"error":{"message":"The model `+"`text-davinci-003`"+` does not exist","code":"model_not_found"}}`)
+	p := newOpenAIAgainst(t, srv.URL)
 
-	_, err := p.Complete(context.Background(), prompt.Build("ls"))
+	_, err := p.Complete(context.Background(), req(), io.Discard)
 	if err == nil {
 		t.Fatal("Complete succeeded on a 404, want error")
 	}
 	if !strings.Contains(err.Error(), "openai-compatible") {
 		t.Errorf("error does not name the provider: %v", err)
+	}
+}
+
+func TestOpenAICompleteHonoursContextCancellation(t *testing.T) {
+	srv := newSSEServer(t, openAIFrames("lists")...)
+	p := newOpenAIAgainst(t, srv.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := p.Complete(ctx, req(), io.Discard); err == nil {
+		t.Fatal("Complete succeeded with a cancelled context, want error")
 	}
 }

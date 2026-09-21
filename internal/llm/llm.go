@@ -1,14 +1,11 @@
 // Package llm defines the provider abstraction explain talks to, plus the
 // adapters that implement it.
-//
-// Phase 0 ships one adapter (OpenAI, which also covers OpenAI-compatible
-// servers via a custom base URL). The interface exists now so that adding
-// Anthropic and streaming later does not disturb the call sites.
 package llm
 
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/cirolini/explain/internal/prompt"
 )
@@ -22,9 +19,14 @@ type Provider interface {
 	Name() string
 	// Model reports the model this provider was configured with.
 	Model() string
-	// Complete returns the model's response, or an error. It never exits the
-	// process and never writes to stdout.
-	Complete(ctx context.Context, req prompt.Request) (string, error)
+	// Complete returns the whole explanation, writing it to w in fragments as
+	// they arrive so a terminal can print it without waiting for the end. Pass
+	// io.Discard when only the return value is wanted.
+	//
+	// Because output is written as it arrives, an error can be returned after
+	// w has already received part of an explanation. Callers that must not show
+	// partial output should pass io.Discard and print the returned string.
+	Complete(ctx context.Context, req prompt.Request, w io.Writer) (string, error)
 }
 
 // Options configures an adapter. Not every field applies to every provider.
@@ -33,3 +35,11 @@ type Options struct {
 	BaseURL string
 	Model   string
 }
+
+// maxOutputTokens bounds the explanation. explain 1.x set MaxTokens to 4000
+// against a 4097-token context window, leaving almost no room for the prompt;
+// this bounds only the response. It is set well above what an explanation
+// needs because current models spend part of the budget on internal reasoning
+// before emitting visible text -- too low and the response comes back empty
+// rather than truncated.
+const maxOutputTokens = 2000

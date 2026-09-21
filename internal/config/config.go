@@ -16,14 +16,44 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Defaults. Every model and provider name explain ships with lives here, so
-// there is exactly one place to update when a provider retires a model. The
-// previous version of this tool hardcoded a model constant in the request
-// builder and became unusable when that model was shut down.
+// Supported providers.
 const (
-	DefaultProvider = "openai"
-	DefaultModel    = "gpt-5.6-luna"
+	// ProviderOpenAI talks to OpenAI directly.
+	ProviderOpenAI = "openai"
+	// ProviderAnthropic talks to the Claude API.
+	ProviderAnthropic = "anthropic"
+	// ProviderCompatible talks to any OpenAI-compatible endpoint -- Ollama,
+	// vLLM, LM Studio -- and so requires a base URL.
+	ProviderCompatible = "openai-compatible"
 )
+
+// DefaultProvider is used when none is configured.
+const DefaultProvider = ProviderOpenAI
+
+// DefaultModels holds the model each provider uses when none is configured.
+// Every model name explain ships with lives here, so there is exactly one
+// place to update when a provider retires one. The previous version of this
+// tool hardcoded a model constant in its request builder and became unusable
+// when that model was shut down.
+//
+// ProviderCompatible has no entry: a local server's model names are its own,
+// so there is nothing sensible to guess.
+var DefaultModels = map[string]string{
+	ProviderOpenAI:    "gpt-5.6-luna",
+	ProviderAnthropic: "claude-opus-5",
+}
+
+// DefaultModel is the model used by the default provider.
+var DefaultModel = DefaultModels[DefaultProvider]
+
+// Supported output languages.
+const (
+	LangEN = "en"
+	LangPT = "pt"
+)
+
+// DefaultLang is used when no language is configured.
+const DefaultLang = LangEN
 
 // Config is the fully resolved configuration for a single run.
 type Config struct {
@@ -31,6 +61,7 @@ type Config struct {
 	Model    string `toml:"model"`
 	BaseURL  string `toml:"base_url"`
 	APIKey   string `toml:"api_key"`
+	Lang     string `toml:"lang"`
 }
 
 // ErrNoAPIKey is returned when no API key was found in any source. Providers
@@ -67,7 +98,10 @@ func (l Loader) Load() (Config, error) {
 		getenv = os.Getenv
 	}
 
-	cfg := Config{Provider: DefaultProvider, Model: DefaultModel}
+	// Model is deliberately left empty here. It is filled in by Resolve, after
+	// flags have been applied, so that choosing a provider picks up that
+	// provider's default model rather than the previous provider's.
+	cfg := Config{Provider: DefaultProvider, Lang: DefaultLang}
 
 	if err := l.applyConfigFile(&cfg); err != nil {
 		return Config{}, err
@@ -129,6 +163,7 @@ func applyEnv(cfg *Config, getenv func(string) string) {
 		Provider: getenv("EXPLAIN_PROVIDER"),
 		Model:    getenv("EXPLAIN_MODEL"),
 		BaseURL:  getenv("EXPLAIN_BASE_URL"),
+		Lang:     getenv("EXPLAIN_LANG"),
 		APIKey: firstNonEmpty(
 			getenv("EXPLAIN_API_KEY"),
 			getenv("OPENAI_API_KEY"),
@@ -147,6 +182,7 @@ func overlay(dst *Config, src Config) {
 		{&dst.Model, src.Model},
 		{&dst.BaseURL, src.BaseURL},
 		{&dst.APIKey, src.APIKey},
+		{&dst.Lang, src.Lang},
 	} {
 		if src := strings.TrimSpace(f.src); src != "" {
 			*f.dst = src
@@ -161,4 +197,42 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// Resolve validates the configuration and fills in anything still unset. It
+// runs after command-line flags have been applied, because the provider can
+// change between Load and here.
+func (c *Config) Resolve() error {
+	if _, ok := DefaultModels[c.Provider]; !ok && c.Provider != ProviderCompatible {
+		return fmt.Errorf("unknown provider %q (supported: %s, %s, %s)",
+			c.Provider, ProviderOpenAI, ProviderAnthropic, ProviderCompatible)
+	}
+
+	// A base URL means the endpoint is OpenAI-compatible rather than OpenAI
+	// itself, so honour it without making the user set both.
+	if c.BaseURL != "" && c.Provider == ProviderOpenAI {
+		c.Provider = ProviderCompatible
+	}
+
+	if c.Provider == ProviderCompatible && c.BaseURL == "" {
+		return fmt.Errorf("provider %q needs a base URL: pass --base-url or set base_url in %s",
+			ProviderCompatible, relConfigPath)
+	}
+
+	if c.Model == "" {
+		c.Model = DefaultModels[c.Provider]
+	}
+	if c.Model == "" {
+		return fmt.Errorf("provider %q has no default model: pass --model", c.Provider)
+	}
+
+	switch c.Lang {
+	case "":
+		c.Lang = DefaultLang
+	case LangEN, LangPT:
+	default:
+		return fmt.Errorf("unknown language %q (supported: %s, %s)", c.Lang, LangEN, LangPT)
+	}
+
+	return nil
 }

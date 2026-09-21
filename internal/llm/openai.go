@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/cirolini/explain/internal/prompt"
@@ -10,14 +11,6 @@ import (
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
 )
-
-// maxCompletionTokens bounds the response. explain 1.x set MaxTokens to 4000
-// against a 4097-token context window, leaving almost no room for the prompt;
-// the ceiling here is for the completion only. Current models spend part of
-// this budget on internal reasoning before emitting any visible text, so it is
-// set well above what an explanation needs -- too low and the response comes
-// back empty rather than truncated.
-const maxCompletionTokens = 2000
 
 // OpenAI talks to the Chat Completions API. It also serves any
 // OpenAI-compatible endpoint -- Ollama, vLLM, LM Studio -- via BaseURL, which
@@ -64,23 +57,37 @@ func (o *OpenAI) Model() string { return o.model }
 //
 // Temperature is deliberately left unset: reasoning-capable models reject any
 // value other than the default, and explain has no need to vary it.
-func (o *OpenAI) Complete(ctx context.Context, req prompt.Request) (string, error) {
-	resp, err := o.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+func (o *OpenAI) Complete(ctx context.Context, req prompt.Request, w io.Writer) (string, error) {
+	stream := o.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
 		Model: shared.ChatModel(o.model),
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(req.System),
 			openai.UserMessage(req.User),
 		},
-		MaxCompletionTokens: openai.Int(maxCompletionTokens),
+		MaxCompletionTokens: openai.Int(maxOutputTokens),
 	})
-	if err != nil {
+	defer stream.Close() //nolint:errcheck // the stream error is reported via stream.Err below
+
+	var b strings.Builder
+	for stream.Next() {
+		chunk := stream.Current()
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		delta := chunk.Choices[0].Delta.Content
+		if delta == "" {
+			continue
+		}
+		b.WriteString(delta)
+		if _, err := io.WriteString(w, delta); err != nil {
+			return "", fmt.Errorf("%s: writing output: %w", o.name, err)
+		}
+	}
+	if err := stream.Err(); err != nil {
 		return "", fmt.Errorf("%s: %w", o.name, err)
 	}
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("%s: model %q returned no choices", o.name, o.model)
-	}
 
-	text := strings.TrimSpace(resp.Choices[0].Message.Content)
+	text := strings.TrimSpace(b.String())
 	if text == "" {
 		return "", fmt.Errorf("%s: model %q returned an empty explanation", o.name, o.model)
 	}

@@ -52,26 +52,40 @@ func NewCommand(opts Options) *cobra.Command {
 				out = cmd.OutOrStdout()
 			}
 
+			if err := cfg.Resolve(); err != nil {
+				return err
+			}
+
 			provider, err := opts.NewProvider(cfg)
 			if err != nil {
 				return err
 			}
 
 			command := strings.Join(args, " ")
-			explanation, err := provider.Complete(cmd.Context(), prompt.Build(command))
-			if err != nil {
+			req := prompt.Build(command, prompt.Lang(cfg.Lang))
+
+			// The explanation streams to out as it arrives, so the terminal
+			// starts filling immediately rather than after the whole response.
+			if _, err := provider.Complete(cmd.Context(), req, out); err != nil {
 				return err
 			}
 
-			_, err = fmt.Fprintf(out, "%s\n", explanation)
+			_, err = fmt.Fprintln(out)
 			return err
 		},
 	}
 
-	cmd.Flags().StringVar(&cfg.Model, "model", cfg.Model, "model to use")
+	f := cmd.Flags()
+	f.StringVar(&cfg.Provider, "provider", cfg.Provider,
+		"provider: openai, anthropic or openai-compatible")
+	f.StringVar(&cfg.Model, "model", cfg.Model,
+		"model to use (default: the provider's own default)")
+	f.StringVar(&cfg.BaseURL, "base-url", cfg.BaseURL,
+		"OpenAI-compatible endpoint, e.g. http://localhost:11434/v1 for Ollama")
+	f.StringVar(&cfg.Lang, "lang", cfg.Lang, "explanation language: en or pt")
 	// Everything after the first non-flag argument belongs to the command being
 	// explained, so `explain rm -rf /tmp/x` does not trip over -rf.
-	cmd.Flags().SetInterspersed(false)
+	f.SetInterspersed(false)
 
 	return cmd
 }
