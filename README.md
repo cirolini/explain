@@ -171,12 +171,20 @@ There is no telemetry, and `explain` never executes the command it is given.
 
 ## How well does it work
 
-[`docs/results.md`](docs/results.md) — 66 commands scored against labels: 86%
-agreement and **zero false positives**, with the misses listed rather than
-tuned away.
+[`docs/results.md`](docs/results.md) scores 66 commands against labels.
 
-Two caveats are on that page and belong here too: the labels are draft, and the
-model arm has not yet been run against a real model.
+| | Agreed | Rated too low | Rated too high |
+| --- | ---: | ---: | ---: |
+| Rules only (`explain check`) | 80% | 13 | **0** |
+| Rules + qwen3.8-27b | 86% | 7 | 2 |
+| Rules + gpt-oss-20b | 82% | 2 | 10 |
+
+The rules never raise a false alarm, and miss things. Adding a model catches
+some of what they miss — and brings in false alarms, how many depending
+heavily on the model. That is why `check` consults no model unless asked.
+
+The labels were checked blind against a second model but have not been
+reviewed by a human; that page says so, and lists every miss.
 
 **A LOW verdict means no rule matched — not that the command is safe.**
 

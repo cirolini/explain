@@ -72,6 +72,16 @@ jobs:
       - name: Score the rules against the labelled dataset
         run: go run ./tools/eval
 
+      # The model runs behind docs/results.md are saved, not repeated. Re-scoring
+      # them against the current dataset and rules fails loudly if the dataset's
+      # commands drift away from what the models were actually asked.
+      - name: Re-score the saved model runs
+        run: |
+          for run in docs/eval/*.json; do
+            echo "== $run"
+            go run ./tools/eval --from "$run" | sed -n '1,9p'
+          done
+
   release-snapshot:
     name: Release snapshot
     runs-on: ubuntu-latest
